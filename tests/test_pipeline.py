@@ -41,6 +41,8 @@ class Pipeline(unittest.TestCase):
         os.environ.pop("ANTHROPIC_API_KEY", None)
         self.cfg = app.load_cfg(str(Path(__file__).resolve().parent.parent / "config.toml"))
         self.cfg["general"]["db_path"] = self.tmp + "/t.sqlite"
+        self.cfg["news"]["feeds"].append({"url": "https://www.reddit.com/r/GamingLeaksAndRumours/new/.rss",
+                                          "name": "r/GamingLeaksAndRumours", "type": "leak"})
         self.store = app.open_store(self.cfg)
         h = lambda x: iso(now() - timedelta(hours=x))  # noqa: E731
         rfc = lambda x: (now() - timedelta(hours=x)).strftime("%a, %d %b %Y %H:%M:%S +0000")  # noqa: E731

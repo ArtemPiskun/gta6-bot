@@ -54,7 +54,7 @@ def collect_channel_rss(store: Store, cfg: dict) -> int:
             continue
         for e in entries:
             official = bool(ch["official"])
-            if not official and not matches(e["title"] + " " + e["summary"], kw):
+            if not official and not matches(e["title"], kw):  # title only: descriptions are tag spam
                 continue
             vid = e["video_id"] or e["url"].rsplit("=", 1)[-1]
             published = e["published"] or now()
@@ -97,7 +97,7 @@ def collect_youtube_search(store: Store, cfg: dict, api_key: str, force=False) -
     for r in data.get("items", []):
         sn = r["snippet"]
         vid = r["id"].get("videoId")
-        if not vid or not matches(sn["title"] + " " + sn.get("description", ""), ycfg["title_keywords"]):
+        if not vid or not matches(html.unescape(sn["title"]), ycfg["title_keywords"]):
             continue
         it = {
             "kind": "video", "url": f"https://www.youtube.com/watch?v={vid}",

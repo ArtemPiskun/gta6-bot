@@ -27,7 +27,8 @@ seed_channels = [
 auto_track_vph = 5000
 max_tracked_channels = 80
 # фильтр: видео должно упоминать GTA 6
-title_keywords = ["gta 6", "gta vi", "gta6", "гта 6", "гта6", "grand theft auto vi", "grand theft auto 6", "vice city", "jason", "lucia"]
+# видео должно упоминать GTA 6 в названии (описания забиты тегами)
+title_keywords = ["gta 6", "gta vi", "gta6", "gtavi", "гта 6", "гта6", "grand theft auto vi", "grand theft auto 6"]
 
 [news]
 title_keywords = ["gta 6", "gta vi", "gta6", "гта 6", "гта6", "grand theft auto vi", "grand theft auto 6", "rockstar"]
