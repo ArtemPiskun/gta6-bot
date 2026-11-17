@@ -321,7 +321,8 @@ def needs_review(row, cfg) -> bool:  # noqa: D401
 
 def send_for_review(row, cfg, store: Store | None = None) -> None:
     admin = os.environ["TELEGRAM_ADMIN_CHAT"]
-    text = f"📝 <b>Черновик</b> · score {int(row['score'])}\n\n" + render(row, cfg)
+    text = (f"📝 <b>Черновик</b> · score {int(row['score'])} · после нажатия пост выйдет в течение 10 мин\n\n"
+            + render(row, cfg))
     markup = {"inline_keyboard": [[{"text": "✅ Опубликовать", "callback_data": f"pub:{row['id']}"},
                                    {"text": "❌ Пропустить", "callback_data": f"skip:{row['id']}"}]]}
     if os.getenv("DRY_RUN", "0") == "1" or not os.getenv("TELEGRAM_BOT_TOKEN"):
@@ -363,14 +364,19 @@ def process_approvals(store: Store, cfg) -> list[str]:
             else:
                 store.update(iid, posted_at="!skip")
                 answer = "Пропущено"
-        try:
+        try:  # usually expired: the bot only reads presses once per cycle
             tg_call("answerCallbackQuery", {"callback_query_id": cq["id"], "text": answer})
-            msg = cq.get("message")
-            if msg:
+        except Exception:
+            pass
+        msg = cq.get("message")
+        if msg:
+            try:  # swap the buttons for a status label so it's clear the press was handled
+                label = "✅ Опубликовано" if answer == "Опубликовано" else f"• {answer}"
                 tg_call("editMessageReplyMarkup", {"chat_id": msg["chat"]["id"], "message_id": msg["message_id"],
-                                                   "reply_markup": {"inline_keyboard": []}})
-        except Exception as e:
-            log.warning("callback ack failed: %s", e)
+                                                   "reply_markup": {"inline_keyboard": [[
+                                                       {"text": label, "callback_data": "noop"}]]}})
+            except Exception as e:
+                log.warning("edit buttons failed: %s", e)
     return done
 
 
