@@ -124,6 +124,9 @@ def main(argv=None) -> int:
         cycle_collect_only(store, cfg)
         cands = sorted((r for r in store.recent(24) if not r["posted_at"]
                         and r["score"] >= publish.threshold(r, cfg)), key=lambda r: r["score"], reverse=True)
+        print("\n##### top news by score")
+        for r in sorted(store.recent(24, "news"), key=lambda r: r["score"], reverse=True)[:15]:
+            print(f"{r['score']:5.1f} {r['source_type']:9} {r['source'][:18]:18} {r['title'][:110]} || {(r['summary'] or '')[:160]}")
         shown = 0
         for r in cands:
             if shown >= 6:
