@@ -275,7 +275,7 @@ def post_due(store: Store, cfg) -> list[str]:
         if is_duplicate_story(row, recent_posted):
             store.update(row["id"], posted_at="!dup")  # skip forever, already covered
             continue
-        if tried >= 3:  # cap editor calls per cycle
+        if tried >= 5:  # cap editor calls per cycle
             break
         tried += 1
         try:
