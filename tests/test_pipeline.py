@@ -38,7 +38,6 @@ class Pipeline(unittest.TestCase):
         self.tmp = tempfile.mkdtemp()
         os.environ.update(DRY_RUN="1", EXPORT_DIR=self.tmp + "/site", LAUNCH_MODE="1")
         os.environ.pop("YOUTUBE_API_KEY", None)
-        os.environ.pop("ANTHROPIC_API_KEY", None)
         self.cfg = app.load_cfg(str(Path(__file__).resolve().parent.parent / "config.toml"))
         self.cfg["general"]["db_path"] = self.tmp + "/t.sqlite"
         self.cfg["news"]["feeds"].append({"url": "https://www.reddit.com/r/GamingLeaksAndRumours/new/.rss",
@@ -57,7 +56,8 @@ class Pipeline(unittest.TestCase):
                     ("tgg_old1", "GTA 6 map size explained", self.pub["tgg_old1"], self.views["tgg_old1"]),
                     ("tgg_old2", "GTA 6 preload guide", self.pub["tgg_old2"], self.views["tgg_old2"]),
                     ("tgg_old3", "GTA 6 cars list", self.pub["tgg_old3"], self.views["tgg_old3"]),
-                    ("x1", "My Minecraft house", h(2), 10)])
+                    ("x1", "My Minecraft house", h(2), 10),
+                    ("stream1", "GTA 6 MARATHON LIVE until release", h(1), 3_000_000)])
             if "channel_id=UCmDTrq0LNgPodDOFZiSbsww" in url:
                 return yt_feed("UCmDTrq0LNgPodDOFZiSbsww", "Rockstar Games", [
                     ("rsg1", "Grand Theft Auto VI Launch Trailer", self.pub["rsg1"], self.views["rsg1"])])
@@ -76,6 +76,15 @@ class Pipeline(unittest.TestCase):
             raise RuntimeError("blocked in test")
 
         net.fetch = fake_fetch
+        os.environ["ANTHROPIC_API_KEY"] = "test"
+
+        def fake_compose(row, related):
+            t = row["title"].lower()
+            if "stream" in t or "minecraft" in t:
+                return None
+            return {"title": "RU: " + row["title"][:60], "text": f"Суть: {row['title']}. Источник {row['source']}.",
+                    "why": "Это важно, потому что релиз через день."}
+        publish.compose = fake_compose
 
     def test_cycle(self):
         buf = io.StringIO()
@@ -116,12 +125,14 @@ class Pipeline(unittest.TestCase):
         with redirect_stdout(io.StringIO()) as more:
             for _ in range(3):
                 self.store.db.execute("UPDATE items SET posted_at=? WHERE posted_at LIKE '20%'",
-                                      (iso(now() - timedelta(minutes=10)),))
+                                      (iso(now() - timedelta(minutes=16)),))
                 app.cycle(self.store, self.cfg)
         posts = more.getvalue()
         print(posts)
         self.assertIn("ign.com/a", posts)
-        self.assertIn("watch?v=tgg1", posts, "13h-old video with 74K/h still posted")
+        self.assertNotIn("watch?v=tgg1", posts, "max one video per 3 posts: news go first")
+        self.assertNotIn("stream1", out + posts, "streams are never posted")
+        self.assertEqual(rows["https://www.youtube.com/watch?v=stream1"]["score"], 0)
         self.assertNotIn("polygon.com/b", posts, "duplicate story not reposted")
         # review mode: drafts go to admin chat with buttons, channel untouched
         os.environ.update(TELEGRAM_ADMIN_CHAT="42", POST_MODE="review")

@@ -1,0 +1,21 @@
+# Показать следующие посты в логе без отправки в канал (Actions -> gta6bot-preview -> Run workflow)
+name: gta6bot-preview
+on: workflow_dispatch
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - uses: actions/cache/restore@v4
+        with:
+          path: data
+          key: gta6bot-db-preview-${{ github.run_id }}
+          restore-keys: gta6bot-db-
+      - env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DRY_RUN: "1"
+          EXPORT_DIR: site-data
+        run: python -m gta6bot preview

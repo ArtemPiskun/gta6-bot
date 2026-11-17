@@ -65,6 +65,11 @@ class Store:
         self.db = sqlite3.connect(path)
         self.db.row_factory = sqlite3.Row
         self.db.executescript(SCHEMA)
+        for col in ("why TEXT DEFAULT ''", "live INTEGER DEFAULT 0", "duration INTEGER"):
+            try:
+                self.db.execute(f"ALTER TABLE items ADD COLUMN {col}")
+            except sqlite3.OperationalError:
+                pass  # already there
 
     # ---- kv
     def get(self, k: str, default: str | None = None) -> str | None:

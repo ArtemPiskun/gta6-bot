@@ -21,6 +21,17 @@ def clean(s: str, limit=600) -> str:
     return s[:limit]
 
 
+def iso_duration(d: str) -> int | None:
+    m = re.fullmatch(r"P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?", d or "")
+    if not m:
+        return None
+    dd, h, mi, se = (int(x or 0) for x in m.groups())
+    return dd * 86400 + h * 3600 + mi * 60 + se
+
+
+STREAM_RE = re.compile(r"\b(live|livestream|stream|streaming|marathon|irl|24/7)\b|стрим|трансляц|прямой эфир|🔴", re.I)
+
+
 def matches(text: str, keywords: list[str]) -> bool:
     t = text.lower()
     return any(k in t for k in keywords)
@@ -97,6 +108,8 @@ def collect_youtube_search(store: Store, cfg: dict, api_key: str, force=False) -
     for r in data.get("items", []):
         sn = r["snippet"]
         vid = r["id"].get("videoId")
+        if sn.get("liveBroadcastContent") in ("live", "upcoming"):
+            continue  # streams are not posts
         if not vid or not matches(html.unescape(sn["title"]), ycfg["title_keywords"]):
             continue
         it = {
@@ -120,12 +133,15 @@ def refresh_video_stats(store: Store, api_key: str) -> int:
     n = 0
     for i in range(0, len(vids), 50):
         chunk = vids[i:i + 50]
-        data = net.fetch_json(YT_API + "videos", {"part": "statistics", "id": ",".join(chunk), "key": api_key})
+        data = net.fetch_json(YT_API + "videos", {"part": "statistics,contentDetails,liveStreamingDetails",
+                                                  "id": ",".join(chunk), "key": api_key})
         for v in data.get("items", []):
             st = v.get("statistics", {})
             views = int(st.get("viewCount", 0))
             store.snapshot(v["id"], views, int(st.get("likeCount", 0) or 0), int(st.get("commentCount", 0) or 0))
-            store.db.execute("UPDATE items SET views=? WHERE video_id=?", (views, v["id"]))
+            live = int("liveStreamingDetails" in v)
+            store.db.execute("UPDATE items SET views=?, live=?, duration=? WHERE video_id=?",
+                             (views, live, iso_duration(v.get("contentDetails", {}).get("duration", "")), v["id"]))
             n += 1
     store.db.commit()
     return n

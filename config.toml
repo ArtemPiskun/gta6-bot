@@ -57,16 +57,18 @@ channel = "@PIR_LIFE"
 mode = "auto"
 # пороги score (0-100) для автопоста
 post_threshold_news = 60
-post_threshold_video = 62
+post_threshold_video = 78
 post_threshold_leak = 78
 launch_threshold_delta = -8
-max_posts_per_hour = 6
-launch_max_posts_per_hour = 10
-min_gap_minutes = 4
+max_posts_per_hour = 3
+launch_max_posts_per_hour = 4
+min_gap_minutes = 10
 # не постить старьё
 max_age_hours = 12
 # видео может «выстрелить» не сразу
 max_age_hours_video = 24
+# канал про новости: не больше одного видео на 3 поста
+video_every_n_posts = 3
 # тихие часы по Москве (UTC+3), в launch_mode игнорируются
 quiet_hours_msk = [2, 8]
 hashtags = "#GTA6 #ГТА6"

@@ -79,9 +79,19 @@ def cycle(store: Store, cfg) -> dict:
     return stats
 
 
+def cycle_collect_only(store: Store, cfg) -> None:
+    key = os.getenv("YOUTUBE_API_KEY")
+    collectors.collect_channel_rss(store, cfg)
+    if key:
+        collectors.collect_youtube_search(store, cfg, key)
+        collectors.refresh_video_stats(store, key)
+    collectors.collect_news(store, cfg)
+    scoring.rescore(store, cfg)
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="gta6bot")
-    ap.add_argument("cmd", choices=["run", "loop", "digest", "top", "test-telegram"])
+    ap.add_argument("cmd", choices=["run", "loop", "digest", "top", "preview", "test-telegram"])
     ap.add_argument("--config", default=str(ROOT / "config.toml"))
     a = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -108,6 +118,26 @@ def main(argv=None) -> int:
             time.sleep(every)
     elif a.cmd == "digest":
         publish.send(os.getenv("TELEGRAM_CHANNEL", "@dry_run"), publish.digest(store, cfg))
+    elif a.cmd == "preview":
+        # collect + score, then show the next posts without sending or marking anything
+        os.environ["DRY_RUN"] = "1"
+        cycle_collect_only(store, cfg)
+        cands = sorted((r for r in store.recent(24) if not r["posted_at"]
+                        and r["score"] >= publish.threshold(r, cfg)), key=lambda r: r["score"], reverse=True)
+        shown = 0
+        for r in cands:
+            if shown >= 6:
+                break
+            print(f"\n===== score {r['score']} | {r['kind']} | {r['source']} | {r['title']}")
+            if publish.llm_available():
+                post = publish.compose(r, publish.related_items(store, r))
+                if not post:
+                    print("[редактор отказался]")
+                    continue
+                store.update(r["id"], title_ru=post["title"], summary_ru=post["text"], why=post["why"])
+                r = store.db.execute("SELECT * FROM items WHERE id=?", (r["id"],)).fetchone()
+            print(publish.render(r, cfg))
+            shown += 1
     elif a.cmd == "top":
         for r in sorted(store.recent(24), key=lambda r: r["score"], reverse=True)[:25]:
             print(f"{r['score']:5.1f} {r['kind']:5} {r['category']:6} {(r['source'] or '')[:18]:18} {r['title'][:80]}")

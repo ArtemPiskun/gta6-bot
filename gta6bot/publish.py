@@ -36,55 +36,81 @@ def is_russian(s: str) -> bool:
 
 
 # ------------------------------------------------------------- copywriting
-def rewrite_ru(row) -> tuple[str, str]:
-    """Russian title + 1-2 sentence summary. Uses Claude if ANTHROPIC_API_KEY is set."""
-    title, summary = row["title"], row["summary"]
+EDITOR_PROMPT = """Ты редактор русскоязычного Telegram-канала про GTA 6. Канал читают фанаты, которым важны факты, а не ссылки.
+Из материала ниже сделай пост или откажись от него.
+
+Откажись ("skip": true), если это: стрим или запись стрима, реакция, мем, кликбейт без фактов, видео «скачиваю / жду / готовлю комнату»,
+реклама, не про GTA 6, или если из данных нельзя написать 2 содержательных предложения.
+
+Если пост нужен:
+- title: заголовок по-русски до 80 символов, по сути, без капса и кликбейта;
+- text: 2-3 предложения по-русски: что именно произошло или что показано, конкретные факты, цифры, даты из материала;
+- why: одно предложение, почему это важно игроку;
+- Ничего не выдумывай. Если это слух или неподтверждённая информация, прямо так и напиши в text.
+- Для видео опиши, что в нём (по названию и описанию) и почему оно набирает просмотры; не пиши «смотрите видео».
+
+Ответь строго JSON без пояснений: {"skip": false, "reason": "", "title": "", "text": "", "why": ""}"""
+
+
+def llm_available() -> bool:
+    return bool(os.getenv("ANTHROPIC_API_KEY"))
+
+
+def compose(row, related: list) -> dict | None:
+    """Ask Claude to write the post. Returns dict(title,text,why) or None to skip."""
+    facts = [f"Тип: {'видео YouTube' if row['kind'] == 'video' else 'новость'}",
+             f"Источник: {row['source']} ({row['source_type']})",
+             f"Заголовок: {row['title']}",
+             f"Описание: {(row['summary'] or '')[:1500]}"]
     if row["kind"] == "video":
-        summary = ""  # descriptions are mostly links/promo, the post shows stats instead
-    key = os.getenv("ANTHROPIC_API_KEY")
-    if not key or (is_russian(title) and len(summary) < 300) or (row["kind"] == "video" and is_russian(title)):
-        return title, summary[:280]
-    prompt = (
-        "Ты редактор русскоязычного Telegram-канала о GTA 6. Перепиши новость по-русски: "
-        "короткий цепляющий заголовок (до 90 символов, без кликбейта и выдумок) и 1-2 предложения сути. "
-        "Ничего не добавляй от себя, только факты из текста. Если это слух, так и скажи. "
-        'Ответь строго JSON: {"title": "...", "summary": "..."}\n\n'
-        f"Источник: {row['source']}\nЗаголовок: {title}\nТекст: {summary[:1500]}"
-    )
-    body = json.dumps({"model": os.getenv("ANTHROPIC_MODEL", "claude-haiku-5-5"), "max_tokens": 400,
-                       "messages": [{"role": "user", "content": prompt}]}).encode()
-    try:
-        raw = net.fetch("https://api.anthropic.com/v1/messages", data=body, headers={
-            "x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json"}, retries=1)
-        text = json.loads(raw)["content"][0]["text"]
-        data = json.loads(text[text.find("{"): text.rfind("}") + 1])
-        return data["title"].strip(), data["summary"].strip()
-    except Exception as e:
-        log.warning("claude rewrite failed: %s", e)
-        return title, summary[:280]
+        facts.append(f"Канал: {row['channel_title']}; просмотры: {fmt_num(row['views'])}; "
+                     f"скорость: {fmt_num(row['recent_vph'] or row['vph'])} в час")
+    for r in related[:4]:
+        facts.append(f"Похожий материал ({r['source']}): {r['title']}. {(r['summary'] or '')[:400]}")
+    body = json.dumps({"model": os.getenv("ANTHROPIC_MODEL", "claude-haiku-5-5"), "max_tokens": 600,
+                       "system": EDITOR_PROMPT,
+                       "messages": [{"role": "user", "content": "\n".join(facts)}]}).encode()
+    raw = net.fetch("https://api.anthropic.com/v1/messages", data=body, headers={
+        "x-api-key": os.environ["ANTHROPIC_API_KEY"], "anthropic-version": "2023-06-01",
+        "content-type": "application/json"}, timeout=60, retries=1)
+    text = "".join(b.get("text", "") for b in json.loads(raw)["content"])
+    data = json.loads(text[text.find("{"): text.rfind("}") + 1])
+    if data.get("skip") or not data.get("text"):
+        log.info("editor skipped %r: %s", row["title"][:60], data.get("reason"))
+        return None
+    return {"title": data["title"].strip(), "text": data["text"].strip(), "why": (data.get("why") or "").strip()}
+
+
+def related_items(store: Store, row) -> list:
+    from .scoring import tokens
+    tk = tokens(row["title"])
+    out = []
+    for r in store.recent(24, "news"):
+        if r["id"] == row["id"]:
+            continue
+        ot = tokens(r["title"])
+        if tk and ot and len(tk & ot) / len(tk | ot) >= 0.3:
+            out.append(r)
+    return sorted(out, key=lambda r: len(r["summary"] or ""), reverse=True)
 
 
 def render(row, cfg) -> str:
     e = html.escape
     title = row["title_ru"] or row["title"]
-    summary = row["summary_ru"] or ""
     cat = row["category"]
-    head = "🔥" if row["score"] >= 80 else CAT_EMOJI.get(cat, "📰")
-    lines = [f"{head} <b>{e(title)}</b>"]
+    lines = [f"<b>{e(title)}</b>"]
     if cat == "leak" and not row["verified"]:
         lines.append("⚠️ <i>Слух, официально не подтверждено</i>")
-    if summary:
-        lines.append("")
-        lines.append(e(summary))
+    if row["summary_ru"]:
+        lines += ["", e(row["summary_ru"])]
+    if row["why"]:
+        lines += ["", f"💡 {e(row['why'])}"]
     lines.append("")
     if row["kind"] == "video":
-        speed = row["recent_vph"] or row["vph"]
-        lines.append(f"📺 {e(row['channel_title'])} · 👁 {fmt_num(row['views'])} · ⚡ {fmt_num(speed)}/час")
-        lines.append(f'▶️ <a href="{e(row["url"])}">Смотреть</a>')
+        lines.append(f'🎬 <a href="{e(row["url"])}">{e(row["channel_title"])}</a> · {fmt_num(row["views"])} просмотров')
     else:
         badge = " ✅" if row["verified"] else ""
-        lines.append(f'🔗 <a href="{e(row["url"])}">{e(row["source"])}</a>{badge}')
-    lines.append("")
+        lines.append(f'Источник: <a href="{e(row["url"])}">{e(row["source"])}</a>{badge}')
     lines.append(f"{cfg['telegram']['hashtags']} #{CAT_RU.get(cat, 'Новости')}")
     return "\n".join(lines)
 
@@ -148,15 +174,38 @@ def post_due(store: Store, cfg) -> list[str]:
                   and scoring.hours_since(r["published"]) <= (
                       t.get("max_age_hours_video", 24) if r["kind"] == "video" else t["max_age_hours"])]
     candidates.sort(key=lambda r: r["score"], reverse=True)
+    if not llm_available():
+        if store.get("warned_no_llm") != time_bucket():
+            notify_admin("Посты на паузе: нужен ANTHROPIC_API_KEY, без него бот не пишет текст постов.")
+            store.set("warned_no_llm", time_bucket())
+        log.warning("no ANTHROPIC_API_KEY: posting disabled, monitoring and export continue")
+        return []
+    # at most one video among the last N channel posts: the channel is about news, not links
+    last_posts = store.db.execute("SELECT kind FROM items WHERE posted_at LIKE '20%' "
+                                  "ORDER BY posted_at DESC LIMIT ?", (t.get("video_every_n_posts", 3) - 1,)).fetchall()
+    allow_video = not any(r["kind"] == "video" for r in last_posts)
     sent = []
+    tried = 0
     for row in candidates:
+        if row["kind"] == "video" and not allow_video and row["source_type"] != "official":
+            continue
         if is_duplicate_story(row, recent_posted):
             store.update(row["id"], posted_at="!dup")  # skip forever, already covered
             continue
-        title_ru, summary_ru = rewrite_ru(row)
-        store.update(row["id"], title_ru=title_ru, summary_ru=summary_ru)
+        if tried >= 3:  # cap editor calls per cycle
+            break
+        tried += 1
+        try:
+            post = compose(row, related_items(store, row))
+        except Exception as e:
+            log.warning("editor failed for %r: %s", row["title"][:60], e)
+            continue
+        if not post:
+            store.update(row["id"], posted_at="!skip")
+            continue
+        store.update(row["id"], title_ru=post["title"], summary_ru=post["text"], why=post["why"])
         row = store.db.execute("SELECT * FROM items WHERE id=?", (row["id"],)).fetchone()
-        if title_ru != row["title"] and is_duplicate_story(row, recent_posted):
+        if is_duplicate_story(row, recent_posted):
             store.update(row["id"], posted_at="!dup")
             continue
         try:
@@ -174,6 +223,10 @@ def post_due(store: Store, cfg) -> list[str]:
         sent.append(row["title"])
         break  # one post per cycle keeps the feed paced (min_gap)
     return sent
+
+
+def time_bucket() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
 # ------------------------------------------------------------- review mode

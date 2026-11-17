@@ -61,6 +61,11 @@ def score_video(store: Store, row, cfg) -> dict:
     kw = cfg["youtube"]["title_keywords"]
     if row["source_type"] != "official" and not any(k in row["title"].lower() for k in kw):
         return {"score": 0, "vph": vph, "recent_vph": recent, "verified": 0}  # off-topic
+    from .collectors import STREAM_RE
+    if row["source_type"] != "official" and (row["live"] or STREAM_RE.search(row["title"])):
+        return {"score": 0, "vph": vph, "recent_vph": recent, "verified": 0}  # streams / VODs of streams
+    if row["source_type"] != "official" and row["duration"] and row["duration"] > 3 * 3600:
+        return {"score": 0, "vph": vph, "recent_vph": recent, "verified": 0}  # multi-hour = stream recording
     speed = recent if recent is not None else vph
     s = 0.0
     if speed:
