@@ -65,7 +65,8 @@ class Store:
         self.db = sqlite3.connect(path)
         self.db.row_factory = sqlite3.Row
         self.db.executescript(SCHEMA)
-        for col in ("why TEXT DEFAULT ''", "live INTEGER DEFAULT 0", "duration INTEGER"):
+        for col in ("why TEXT DEFAULT ''", "live INTEGER DEFAULT 0", "duration INTEGER",
+                    "article_url TEXT DEFAULT ''"):
             try:
                 self.db.execute(f"ALTER TABLE items ADD COLUMN {col}")
             except sqlite3.OperationalError:

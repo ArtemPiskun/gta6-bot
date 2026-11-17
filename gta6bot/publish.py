@@ -165,7 +165,8 @@ def render(row, cfg) -> str:
         lines.append(f'🎬 <a href="{e(row["url"])}">{e(row["channel_title"])}</a> · {fmt_num(row["views"])} просмотров')
     else:
         badge = " ✅" if row["verified"] else ""
-        lines.append(f'Источник: <a href="{e(row["url"])}">{e(row["source"])}</a>{badge}')
+        link = row["article_url"] or row["url"]
+        lines.append(f'Источник: <a href="{e(link)}">{e(row["source"])}</a>{badge}')
     lines.append(f"{cfg['telegram']['hashtags']} #{CAT_RU.get(cat, 'Новости')}")
     return "\n".join(lines)
 
@@ -287,6 +288,13 @@ def post_due(store: Store, cfg) -> list[str]:
         if tried >= 5:  # cap editor calls per cycle
             break
         tried += 1
+        if row["kind"] == "news":
+            try:  # real article behind Google News: better text for the editor + its picture
+                from . import article
+                article.enrich(store, row)
+                row = store.db.execute("SELECT * FROM items WHERE id=?", (row["id"],)).fetchone()
+            except Exception as e:
+                log.info("enrich failed: %s", e)
         try:
             post = compose(row, related_items(store, row))
         except Exception as e:
@@ -479,7 +487,8 @@ def export_site(store: Store, cfg) -> dict:
             continue
         news.append({
             "id": r["id"], "title": r["title_ru"] or r["title"],
-            "summary": r["summary_ru"] or r["summary"][:400], "url": r["url"], "source": r["source"],
+            "summary": r["summary_ru"] or r["summary"][:400], "url": r["article_url"] or r["url"],
+            "source": r["source"],
             "source_type": r["source_type"], "category": r["category"], "published": r["published"],
             "image": r["image"], "tags": json.loads(r["tags"] or "[]"), "score": int(r["score"] or 0),
             "verified": bool(r["verified"]),

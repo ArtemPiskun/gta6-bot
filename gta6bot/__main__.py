@@ -148,6 +148,11 @@ def main(argv=None) -> int:
             if shown >= 6:
                 break
             print(f"\n===== score {r['score']} | {r['kind']} | {r['source']} | {r['title']}")
+            if r["kind"] == "news":
+                from . import article
+                info = article.enrich(store, r)
+                r = store.db.execute("SELECT * FROM items WHERE id=?", (r["id"],)).fetchone()
+                print(f"[article] {info['url'][:120]}\n[image] {info['image'] or '— нет, будет обложка'}")
             if publish.llm_available():
                 try:
                     post = publish.compose(r, publish.related_items(store, r))
