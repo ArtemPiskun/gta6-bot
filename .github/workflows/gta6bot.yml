@@ -1,0 +1,38 @@
+# Запуск бота каждые 10 минут на GitHub Actions (бесплатно для публичных репозиториев,
+# 2000 минут/мес для приватных). Секреты: Settings -> Secrets and variables -> Actions.
+name: gta6bot
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+concurrency: { group: gta6bot, cancel-in-progress: false }
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - name: Restore database
+        uses: actions/cache/restore@v4
+        with:
+          path: data
+          key: gta6bot-db-${{ github.run_id }}
+          restore-keys: gta6bot-db-
+      - name: Run cycle
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHANNEL: ${{ secrets.TELEGRAM_CHANNEL }}
+          TELEGRAM_ADMIN_CHAT: ${{ secrets.TELEGRAM_ADMIN_CHAT }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          EXPORT_DIR: site-data
+        run: python -m gta6bot run
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: data
+          key: gta6bot-db-${{ github.run_id }}
+      - uses: actions/upload-artifact@v4
+        with: { name: site-data, path: site-data, retention-days: 2 }

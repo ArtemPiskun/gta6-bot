@@ -1,0 +1,72 @@
+# Конфиг мониторинга GTA 6. Секреты (токены, ключи) задаются через переменные окружения, см. .env.example
+
+[general]
+db_path = "data/gta6bot.sqlite"
+# куда писать ленты для сайта (формат согласован с тредом сайта)
+export_dir = "/mnt/project-files/gta6-site/content"
+# режим релиза: ниже пороги, чаще посты. Включить 18-21 ноября
+launch_mode = true
+loop_interval_minutes = 5
+
+[youtube]
+# поисковые запросы для API (search.list стоит 100 единиц квоты из 10 000 в сутки)
+# англоязычный YouTube в приоритете (у Артёма английский канал без лица): 3 из 4 поисков на английском
+search_queries = ["GTA 6", "GTA VI", "GTA 6 news", "ГТА 6"]
+search_interval_minutes = 20
+# каналы, которые читаем через бесплатный RSS каждый цикл (статистика просмотров там тоже есть)
+seed_channels = [
+  { id = "UCmDTrq0LNgPodDOFZiSbsww", name = "Rockstar Games", official = true },
+  { id = "UC72PuhDwKtZ5MikpGNhPAtA", name = "TGG" },
+  { id = "UC36MGPfPwOWafAXauiV4LdA", name = "TmarTn2" },
+  { id = "UCkF597cv6R5Sa570_CxPoTw", name = "GrandGecko" },
+  { id = "UCYzIpEDD8lpkCCPt-DR-f2g", name = "Vice City Dispatch" },
+  { id = "UCKy1dAqELo0zrOtPkf0eTMw", name = "IGN" },
+  { id = "UCRTPvo_rgGG8go3Yvhju20A", name = "King jr" },
+]
+# канал из поиска добавляется в отслеживаемые, если его видео набирает столько просмотров в час
+auto_track_vph = 5000
+max_tracked_channels = 80
+# фильтр: видео должно упоминать GTA 6
+title_keywords = ["gta 6", "gta vi", "gta6", "гта 6", "гта6", "grand theft auto vi", "grand theft auto 6", "vice city", "jason", "lucia"]
+
+[news]
+title_keywords = ["gta 6", "gta vi", "gta6", "гта 6", "гта6", "grand theft auto vi", "grand theft auto 6", "rockstar"]
+feeds = [
+  { url = "https://news.google.com/rss/search?q=%22GTA+6%22+OR+%22GTA+VI%22&hl=en-US&gl=US&ceid=US:en", name = "Google News EN", type = "media" },
+  { url = "https://news.google.com/rss/search?q=%22GTA+6%22+OR+%22%D0%93%D0%A2%D0%90+6%22&hl=ru&gl=RU&ceid=RU:ru", name = "Google News RU", type = "media" },
+  { url = "https://news.google.com/rss/search?q=site:rockstargames.com&hl=en-US&gl=US&ceid=US:en", name = "Rockstar Newswire", type = "official" },
+  { url = "https://www.pcgamer.com/rss/", name = "PC Gamer", type = "media" },
+  { url = "https://www.gamespot.com/feeds/news/", name = "GameSpot", type = "media" },
+  { url = "https://www.eurogamer.net/feed", name = "Eurogamer", type = "media" },
+  { url = "https://rss.stopgame.ru/rss_news.xml", name = "StopGame", type = "media" },
+  { url = "https://www.reddit.com/r/GTA6/top/.rss?t=day", name = "r/GTA6", type = "community" },
+  { url = "https://www.reddit.com/r/GamingLeaksAndRumours/new/.rss", name = "r/GamingLeaksAndRumours", type = "leak" },
+]
+# домены, которые считаем официальными
+official_domains = ["rockstargames.com", "take2games.com"]
+
+[scoring]
+# какие слова поднимают вес новости
+boost_words = { "trailer" = 15, "трейлер" = 15, "delay" = 25, "перенос" = 25, "release" = 10, "релиз" = 10, "patch" = 12, "update" = 10, "обновлен" = 10, "leak" = 10, "слив" = 10, "price" = 8, "цен" = 8, "pc" = 8, "пк" = 8, "online" = 10, "онлайн" = 10, "record" = 10, "рекорд" = 10, "review" = 12, "обзор" = 8, "metacritic" = 15, "оценк" = 10 }
+
+[telegram]
+# канал для публикаций (переменная окружения TELEGRAM_CHANNEL главнее)
+channel = "@PIR_LIFE"
+# auto: публикует сам, но неподтверждённые слухи сначала уходят вам на одобрение (если задан TELEGRAM_ADMIN_CHAT)
+# review: всё уходит черновиками в TELEGRAM_ADMIN_CHAT с кнопками «Опубликовать / Пропустить»
+mode = "auto"
+# пороги score (0-100) для автопоста
+post_threshold_news = 60
+post_threshold_video = 62
+post_threshold_leak = 78
+launch_threshold_delta = -8
+max_posts_per_hour = 6
+launch_max_posts_per_hour = 10
+min_gap_minutes = 4
+# не постить старьё
+max_age_hours = 12
+# видео может «выстрелить» не сразу
+max_age_hours_video = 24
+# тихие часы по Москве (UTC+3), в launch_mode игнорируются
+quiet_hours_msk = [2, 8]
+hashtags = "#GTA6 #ГТА6"

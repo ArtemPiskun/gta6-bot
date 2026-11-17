@@ -1,0 +1,11 @@
+# systemd-юнит для VPS: sudo cp gta6bot.service /etc/systemd/system/ && sudo systemctl enable --now gta6bot
+[Unit]
+Description=GTA 6 monitor and Telegram autoposter
+After=network-online.target
+[Service]
+WorkingDirectory=/opt/gta6-automation
+ExecStart=/usr/bin/python3 -m gta6bot loop
+Restart=always
+RestartSec=30
+[Install]
+WantedBy=multi-user.target
