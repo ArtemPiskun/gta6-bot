@@ -84,7 +84,7 @@ def score_video(store: Store, row, cfg) -> dict:
             "verified": int(row["source_type"] == "official")}
 
 
-BASE = {"official": 70, "media": 38, "community": 28, "leak": 30, "youtube": 30}
+BASE = {"official": 70, "media": 45, "community": 28, "leak": 30, "youtube": 30}
 
 
 def score_news(store: Store, row, cfg, window: list) -> dict:

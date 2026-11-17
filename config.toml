@@ -56,7 +56,7 @@ channel = "@PIR_LIFE"
 # review: всё уходит черновиками в TELEGRAM_ADMIN_CHAT с кнопками «Опубликовать / Пропустить»
 mode = "auto"
 # пороги score (0-100) для автопоста
-post_threshold_news = 60
+post_threshold_news = 56
 post_threshold_video = 78
 post_threshold_leak = 78
 launch_threshold_delta = -8
