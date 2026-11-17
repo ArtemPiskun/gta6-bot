@@ -58,6 +58,9 @@ def boost(text: str, words: dict[str, int]) -> int:
 
 def score_video(store: Store, row, cfg) -> dict:
     vph, recent = velocity(store, row)
+    kw = cfg["youtube"]["title_keywords"]
+    if row["source_type"] != "official" and not any(k in row["title"].lower() for k in kw):
+        return {"score": 0, "vph": vph, "recent_vph": recent, "verified": 0}  # off-topic
     speed = recent if recent is not None else vph
     s = 0.0
     if speed:
