@@ -110,7 +110,8 @@ def cycle_collect_only(store: Store, cfg) -> None:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="gta6bot")
-    ap.add_argument("cmd", choices=["run", "loop", "digest", "top", "preview", "announce", "test-telegram"])
+    ap.add_argument("cmd", choices=["run", "loop", "digest", "top", "preview", "announce", "listen", "test-telegram"])
+    ap.add_argument("--seconds", type=int, default=230)
     ap.add_argument("--file", help="announcement JSON for announce")
     ap.add_argument("--config", default=str(ROOT / "config.toml"))
     a = ap.parse_args(argv)
@@ -160,6 +161,11 @@ def main(argv=None) -> int:
                 r = store.db.execute("SELECT * FROM items WHERE id=?", (r["id"],)).fetchone()
             print(publish.render(r, cfg))
             shown += 1
+    elif a.cmd == "listen":
+        # wait for Publish/Skip presses between cycles and react instantly
+        done = publish.process_approvals(store, cfg, wait_seconds=a.seconds)
+        if done:
+            log.info("published on approval: %s", done)
     elif a.cmd == "announce":
         print(publish.announce(store, cfg, a.file))
     elif a.cmd == "top":

@@ -37,7 +37,7 @@ jobs:
           while [ $SECONDS -lt $end ]; do
             git pull -q --ff-only || true   # подхватить новые настройки и анонсы без перезапуска
             timeout 240 python -m gta6bot run || echo "cycle failed"
-            sleep 240
+            timeout 290 python -m gta6bot listen --seconds 230 || sleep 30   # мгновенная реакция на кнопки
           done
       - name: Save database
         if: always()

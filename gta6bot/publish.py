@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import tempfile
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -181,7 +182,7 @@ def tg_call(method: str, payload: dict) -> dict:
     return res
 
 
-def tg_upload_photo(chat: str, photo: bytes, caption: str, reply_markup: dict | None = None) -> None:
+def tg_upload_photo(chat: str, photo: bytes, caption: str, reply_markup: dict | None = None) -> dict:
     token = os.environ["TELEGRAM_BOT_TOKEN"]
     boundary = "----gta6bot" + os.urandom(8).hex()
     parts = []
@@ -198,30 +199,38 @@ def tg_upload_photo(chat: str, photo: bytes, caption: str, reply_markup: dict | 
     res = json.loads(raw)
     if not res.get("ok"):
         raise RuntimeError(res)
+    return res["result"]
 
 
-def send(chat: str, text: str, image: str = "", photo: bytes | None = None) -> None:
+def send(chat: str, text: str, image: str = "", photo: bytes | None = None) -> dict:
+    """Send a post; returns Telegram's message object ({} in dry run)."""
     if os.getenv("DRY_RUN", "0") == "1" or not os.getenv("TELEGRAM_BOT_TOKEN"):
         extra = f"\n[image] {image}" if image else (f"\n[cover] {len(photo)} bytes" if photo else "")
         print("---- [DRY RUN] ->", chat, "\n" + text + extra)
         if photo and os.getenv("PREVIEW_DIR"):
             Path(os.environ["PREVIEW_DIR"]).mkdir(parents=True, exist_ok=True)
             (Path(os.environ["PREVIEW_DIR"]) / f"cover_{abs(hash(text)) % 10**8}.jpg").write_bytes(photo)
-        return
+        return {}
     if photo and len(text) <= 1024:
         try:
-            tg_upload_photo(chat, photo, text)
-            return
+            return tg_upload_photo(chat, photo, text)
         except Exception as e:
             log.warning("photo upload failed, falling back: %s", e)
     if image and len(text) <= 1024:
         try:
-            tg_call("sendPhoto", {"chat_id": chat, "photo": image, "caption": text, "parse_mode": "HTML"})
-            return
+            return tg_call("sendPhoto", {"chat_id": chat, "photo": image, "caption": text,
+                                         "parse_mode": "HTML"})["result"]
         except Exception as e:
             log.warning("sendPhoto failed, falling back to text: %s", e)
-    tg_call("sendMessage", {"chat_id": chat, "text": text, "parse_mode": "HTML",
-                            "link_preview_options": {"is_disabled": False}})
+    return tg_call("sendMessage", {"chat_id": chat, "text": text, "parse_mode": "HTML",
+                                   "link_preview_options": {"is_disabled": False}})["result"]
+
+
+def post_link(msg: dict) -> str:
+    chat = msg.get("chat", {})
+    if chat.get("username") and msg.get("message_id"):
+        return f"https://t.me/{chat['username']}/{msg['message_id']}"
+    return ""
 
 
 def threshold(row, cfg) -> float:
@@ -329,7 +338,7 @@ def needs_review(row, cfg) -> bool:  # noqa: D401
 
 def send_for_review(row, cfg, store: Store | None = None) -> None:
     admin = os.environ["TELEGRAM_ADMIN_CHAT"]
-    text = (f"📝 <b>Черновик</b> · score {int(row['score'])} · после нажатия пост выйдет в течение 5 мин\n\n"
+    text = (f"📝 <b>Черновик</b> · score {int(row['score'])} · статус обновится под кнопками\n\n"
             + render(row, cfg))
     markup = {"inline_keyboard": [[{"text": "✅ Опубликовать", "callback_data": f"pub:{row['id']}"},
                                    {"text": "❌ Пропустить", "callback_data": f"skip:{row['id']}"}]]}
@@ -346,46 +355,83 @@ def send_for_review(row, cfg, store: Store | None = None) -> None:
         tg_call("sendMessage", {"chat_id": admin, "text": text, "parse_mode": "HTML", "reply_markup": markup})
 
 
-def process_approvals(store: Store, cfg) -> list[str]:
-    """Poll button presses from the admin chat and publish approved drafts."""
+def _set_status(msg: dict | None, buttons: list) -> None:
+    if not msg:
+        return
+    try:
+        tg_call("editMessageReplyMarkup", {"chat_id": msg["chat"]["id"], "message_id": msg["message_id"],
+                                           "reply_markup": {"inline_keyboard": [buttons]}})
+    except Exception as e:
+        if "not modified" not in str(e):
+            log.warning("status update failed: %s", e)
+
+
+def process_approvals(store: Store, cfg, wait_seconds: int = 0) -> list[str]:
+    """Handle Publish/Skip presses. With wait_seconds>0 long-polls Telegram so a press is
+    acknowledged instantly: ⏳ status right away, then ✅ with a link to the channel post."""
     if not os.getenv("TELEGRAM_BOT_TOKEN") or os.getenv("DRY_RUN", "0") == "1":
         return []
     admin = os.getenv("TELEGRAM_ADMIN_CHAT", "")
-    offset = int(store.get("tg_offset", "0"))
-    res = tg_call("getUpdates", {"offset": offset, "timeout": 0, "allowed_updates": ["callback_query"]})
+    deadline = time.time() + wait_seconds
     done = []
-    for upd in res.get("result", []):
-        store.set("tg_offset", str(upd["update_id"] + 1))
-        cq = upd.get("callback_query")
-        if not cq or str(cq["from"]["id"]) != admin and str(cq.get("message", {}).get("chat", {}).get("id")) != admin:
-            continue
-        action, _, iid = cq.get("data", "").partition(":")
-        row = store.db.execute("SELECT * FROM items WHERE id=?", (iid,)).fetchone()
-        answer = "Не найдено"
-        if row and row["posted_at"] == "!pending":
-            if action == "pub":
-                img_url, cover = pick_image(store, row, cfg)
-                send(os.environ["TELEGRAM_CHANNEL"], render(row, cfg), img_url, cover)
-                store.update(iid, posted_at=iso(now()))
-                answer = "Опубликовано"
-                done.append(row["title"])
-            else:
+    while True:
+        offset = int(store.get("tg_offset", "0"))
+        poll = max(0, min(50, int(deadline - time.time())))
+        try:
+            res = net.fetch(f"https://api.telegram.org/bot{os.environ['TELEGRAM_BOT_TOKEN']}/getUpdates",
+                            data=json.dumps({"offset": offset, "timeout": poll,
+                                             "allowed_updates": ["callback_query"]}).encode(),
+                            headers={"Content-Type": "application/json"}, timeout=poll + 20, retries=1)
+            updates = json.loads(res).get("result", [])
+        except Exception as e:
+            log.warning("getUpdates: %s", e)
+            updates = []
+            time.sleep(5)
+        for upd in updates:
+            store.set("tg_offset", str(upd["update_id"] + 1))
+            cq = upd.get("callback_query")
+            if not cq or (str(cq["from"]["id"]) != admin
+                          and str(cq.get("message", {}).get("chat", {}).get("id")) != admin):
+                continue
+            action, _, iid = cq.get("data", "").partition(":")
+            msg = cq.get("message")
+            row = store.db.execute("SELECT * FROM items WHERE id=?", (iid,)).fetchone()
+            if action == "noop" or not row:
+                _ack(cq, "Уже обработано" if action == "noop" else "Черновик не найден")
+                continue
+            if row["posted_at"] and row["posted_at"] != "!pending":
+                status = "✅ Уже опубликовано" if not row["posted_at"].startswith("!") else "⏭ Уже пропущено"
+                _ack(cq, status)
+                _set_status(msg, [{"text": status, "callback_data": "noop"}])
+                continue
+            if action == "skip":
                 store.update(iid, posted_at="!skip")
-                answer = "Пропущено"
-        try:  # usually expired: the bot only reads presses once per cycle
-            tg_call("answerCallbackQuery", {"callback_query_id": cq["id"], "text": answer})
-        except Exception:
-            pass
-        msg = cq.get("message")
-        if msg:
-            try:  # swap the buttons for a status label so it's clear the press was handled
-                label = "✅ Опубликовано" if answer == "Опубликовано" else f"• {answer}"
-                tg_call("editMessageReplyMarkup", {"chat_id": msg["chat"]["id"], "message_id": msg["message_id"],
-                                                   "reply_markup": {"inline_keyboard": [[
-                                                       {"text": label, "callback_data": "noop"}]]}})
+                _ack(cq, "Пропущено")
+                _set_status(msg, [{"text": "⏭ Пропущено", "callback_data": "noop"}])
+                continue
+            _ack(cq, "Публикую…")
+            _set_status(msg, [{"text": "⏳ Публикую…", "callback_data": "noop"}])
+            try:
+                img_url, cover = pick_image(store, row, cfg)
+                sent = send(os.environ["TELEGRAM_CHANNEL"], render(row, cfg), img_url, cover)
             except Exception as e:
-                log.warning("edit buttons failed: %s", e)
-    return done
+                log.error("publish failed: %s", e)
+                _set_status(msg, [{"text": "⚠️ Ошибка, повторить", "callback_data": f"pub:{iid}"}])
+                continue
+            store.update(iid, posted_at=iso(now()))
+            done.append(row["title"])
+            link = post_link(sent)
+            _set_status(msg, [{"text": "✅ Опубликовано · открыть", "url": link}] if link
+                        else [{"text": "✅ Опубликовано", "callback_data": "noop"}])
+        if time.time() >= deadline:
+            return done
+
+
+def _ack(cq: dict, text: str) -> None:
+    try:
+        tg_call("answerCallbackQuery", {"callback_query_id": cq["id"], "text": text})
+    except Exception:
+        pass  # press older than ~15 s: Telegram no longer accepts the toast
 
 
 def notify_admin(text: str) -> None:
