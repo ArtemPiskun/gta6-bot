@@ -93,7 +93,8 @@ def render(row, cfg) -> str:
 def tg_call(method: str, payload: dict) -> dict:
     token = os.environ["TELEGRAM_BOT_TOKEN"]
     raw = net.fetch(f"https://api.telegram.org/bot{token}/{method}",
-                    data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"}, retries=1)
+                    data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"},
+                    timeout=45, retries=2)
     res = json.loads(raw)
     if not res.get("ok"):
         raise RuntimeError(res)

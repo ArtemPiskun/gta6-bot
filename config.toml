@@ -39,8 +39,7 @@ feeds = [
   { url = "https://www.gamespot.com/feeds/news/", name = "GameSpot", type = "media" },
   { url = "https://www.eurogamer.net/feed", name = "Eurogamer", type = "media" },
   { url = "https://rss.stopgame.ru/rss_news.xml", name = "StopGame", type = "media" },
-  { url = "https://www.reddit.com/r/GTA6/top/.rss?t=day", name = "r/GTA6", type = "community" },
-  { url = "https://www.reddit.com/r/GamingLeaksAndRumours/new/.rss", name = "r/GamingLeaksAndRumours", type = "leak" },
+  # Reddit блокирует серверы GitHub (404/429), поэтому отключён
 ]
 # домены, которые считаем официальными
 official_domains = ["rockstargames.com", "take2games.com"]
