@@ -1,0 +1,18 @@
+name: tg-debug
+on: workflow_dispatch
+jobs:
+  d:
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          T: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          C: ${{ secrets.TELEGRAM_CHANNEL }}
+        run: |
+          echo "token length: ${#T}; has newline/space: $(printf '%s' "$T" | grep -c '[[:space:]]' || true); colon: $(printf '%s' "$T" | grep -c ':' || true)"
+          echo "channel secret set: ${#C}"
+          curl -sS -m 20 -o /dev/null -w "telegram root: %{http_code} %{time_total}s\n" https://api.telegram.org/ || true
+          curl -sS -m 20 "https://api.telegram.org/bot${T}/getMe" | sed 's/"id":[0-9]*/"id":X/' || true
+          echo
+          curl -sS -m 20 "https://api.telegram.org/bot${T}/getChat?chat_id=@PIR_LIFE" | head -c 300 || true
+          echo
+          python3 -c "import urllib.request;print(urllib.request.urlopen('https://api.telegram.org/',timeout=20).status)" || true
