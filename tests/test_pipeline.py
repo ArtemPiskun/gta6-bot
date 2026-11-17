@@ -146,6 +146,9 @@ class Pipeline(unittest.TestCase):
             self.assertIn("[DRY RUN REVIEW] -> 42", rv.getvalue())
             self.assertNotIn("[DRY RUN] -> @dry_run", rv.getvalue())
             self.assertIn("reddit.com/e", rv.getvalue(), "leak goes to review")
+            self.assertIn("Our GTA 6 hub is live", out, "announcement posted once")
+            self.assertIn("artempiskun.github.io/vihub/en/", out, "falls back to reachable url")
+            self.assertEqual(out.count("Our GTA 6 hub is live"), 1)
         finally:
             os.environ.update(TELEGRAM_ADMIN_CHAT="", POST_MODE="auto")
 

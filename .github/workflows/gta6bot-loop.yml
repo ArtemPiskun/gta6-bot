@@ -1,0 +1,51 @@
+# Основной режим: одна задача крутит цикл каждые 5 минут ~5.5 часа, затем перезапускает себя.
+# Расписание (cron) GitHub для новых репозиториев срабатывает ненадёжно, поэтому не полагаемся на него.
+name: gta6bot-loop
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 */6 * * *"   # страховка: поднять цикл, если цепочка оборвалась
+concurrency: { group: gta6bot, cancel-in-progress: false }
+permissions:
+  contents: read
+  actions: write
+jobs:
+  loop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -q pillow
+      - name: Restore database
+        uses: actions/cache/restore@v4
+        with:
+          path: data
+          key: gta6bot-db-${{ github.run_id }}
+          restore-keys: gta6bot-db-
+      - name: Loop
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHANNEL: ${{ secrets.TELEGRAM_CHANNEL }}
+          TELEGRAM_ADMIN_CHAT: ${{ secrets.TELEGRAM_ADMIN_CHAT }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          EXPORT_DIR: site-data
+        run: |
+          end=$((SECONDS + 19800))
+          while [ $SECONDS -lt $end ]; do
+            git pull -q --ff-only || true   # подхватить новые настройки и анонсы без перезапуска
+            timeout 240 python -m gta6bot run || echo "cycle failed"
+            sleep 240
+          done
+      - name: Save database
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data
+          key: gta6bot-db-${{ github.run_id }}
+      - name: Restart loop
+        if: ${{ !cancelled() }}
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: gh workflow run gta6bot-loop.yml -R ${{ github.repository }} --ref main

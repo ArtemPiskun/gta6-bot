@@ -117,6 +117,12 @@ def related_video(store: Store, row):
 def pick_image(store: Store, row, cfg) -> tuple[str, bytes | None]:
     """(image url, generated cover bytes). Videos use their thumbnail; news use the
     article image, otherwise a branded cover with the headline."""
+    if row["source_type"] == "own":
+        from . import card
+        if card.available():
+            return "", card.make_card(row["title_ru"] or row["title"], "site", "", os.getenv("TELEGRAM_CHANNEL", ""),
+                                      seed=row["id"])
+        return "", None
     if row["kind"] == "video" and row["video_id"]:
         return f"https://i.ytimg.com/vi/{row['video_id']}/maxresdefault.jpg", None
     if row["image"] and "google" not in row["image"]:
@@ -141,6 +147,8 @@ def pick_image(store: Store, row, cfg) -> tuple[str, bytes | None]:
 
 
 def render(row, cfg) -> str:
+    if row["source_type"] == "own":  # hand-written announcement, already HTML
+        return row["summary_ru"]
     e = html.escape
     title = row["title_ru"] or row["title"]
     cat = row["category"]
@@ -321,7 +329,7 @@ def needs_review(row, cfg) -> bool:  # noqa: D401
 
 def send_for_review(row, cfg, store: Store | None = None) -> None:
     admin = os.environ["TELEGRAM_ADMIN_CHAT"]
-    text = (f"📝 <b>Черновик</b> · score {int(row['score'])} · после нажатия пост выйдет в течение 10 мин\n\n"
+    text = (f"📝 <b>Черновик</b> · score {int(row['score'])} · после нажатия пост выйдет в течение 5 мин\n\n"
             + render(row, cfg))
     markup = {"inline_keyboard": [[{"text": "✅ Опубликовать", "callback_data": f"pub:{row['id']}"},
                                    {"text": "❌ Пропустить", "callback_data": f"skip:{row['id']}"}]]}
@@ -456,3 +464,35 @@ def export_site(store: Store, cfg) -> dict:
     _write_json(out / "trending.json", {"updated": iso(now()), "videos": trending})
     _write_json(out / "channels.json", {"updated": iso(now()), "channels": channels})
     return {"news": len(news), "trending": len(trending), "channels": len(channels)}
+
+
+def announce(store: Store, cfg, path: str) -> str:
+    """Queue a hand-written post: draft to the admin chat (review) or straight to the channel (auto)."""
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
+    url = data["urls"][-1]
+    for u in data["urls"]:
+        try:
+            net.fetch(u, retries=0, timeout=15)
+            url = u
+            break
+        except Exception as e:
+            log.warning("announce url %s not reachable: %s", u, e)
+    label = url.split("://", 1)[1].rstrip("/")
+    text = data["html"].replace("{url}", html.escape(url)).replace("{url_label}", html.escape(label))
+    iid = data["id"]
+    store.db.execute("DELETE FROM items WHERE id=? AND (posted_at IS NULL OR posted_at LIKE '!%')", (iid,))
+    store.db.commit()
+    store.upsert({"id": iid, "kind": "news", "url": f"announce:{iid}", "title": data["title"],
+                  "source": "PIR_LIFE", "source_type": "own", "category": "news", "published": iso(now())})
+    store.update(iid, title_ru=data.get("cover_title", data["title"]), summary_ru=text, score=100, verified=1)
+    row = store.db.execute("SELECT * FROM items WHERE id=?", (iid,)).fetchone()
+    if row["posted_at"] and not row["posted_at"].startswith("!"):
+        return "already posted"
+    if os.getenv("TELEGRAM_ADMIN_CHAT"):
+        send_for_review(row, cfg, store)
+        store.update(iid, posted_at="!pending")
+        return f"draft sent ({url})"
+    img_url, cover = pick_image(store, row, cfg)
+    send(os.getenv("TELEGRAM_CHANNEL", "@dry_run"), text, img_url, cover)
+    store.update(iid, posted_at=iso(now()))
+    return f"posted ({url})"

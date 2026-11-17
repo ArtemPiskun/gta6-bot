@@ -7,7 +7,7 @@ from pathlib import Path
 
 ASSETS = Path(__file__).resolve().parent.parent / "assets"
 W, H = 1280, 720
-CAT_LABEL = {"news": "НОВОСТИ", "update": "ОБНОВЛЕНИЕ", "guide": "ГАЙД", "video": "ВИДЕО", "leak": "СЛУХ"}
+CAT_LABEL = {"news": "НОВОСТИ", "update": "ОБНОВЛЕНИЕ", "guide": "ГАЙД", "video": "ВИДЕО", "leak": "СЛУХ", "site": "NEW WEBSITE"}
 PALETTES = [  # Vice City sunsets
     ((26, 11, 46), (255, 46, 136), (255, 154, 60)),
     ((10, 18, 48), (0, 180, 216), (255, 46, 136)),

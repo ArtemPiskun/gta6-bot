@@ -73,6 +73,23 @@ def cycle(store: Store, cfg) -> dict:
     except Exception as e:
         log.error("approvals: %s", e)
     stats["posted"] = publish.post_due(store, cfg)
+    # hand-written posts dropped into announcements/ are queued once
+    for f in sorted((ROOT / "announcements").glob("*.json")):
+        try:
+            aid = __import__("json").loads(f.read_text(encoding="utf-8"))["id"]
+            if not store.db.execute("SELECT 1 FROM items WHERE id=?", (aid,)).fetchone():
+                stats.setdefault("announced", []).append(publish.announce(store, cfg, str(f)))
+        except Exception as e:
+            log.error("announce %s: %s", f.name, e)
+    # daily digest at 20:00 MSK (17 UTC), once a day
+    today = time.strftime("%Y-%m-%d", time.gmtime())
+    if time.gmtime().tm_hour == 17 and store.get("last_digest_day") != today:
+        try:
+            publish.send(os.getenv("TELEGRAM_CHANNEL", "@dry_run"), publish.digest(store, cfg))
+            store.set("last_digest_day", today)
+            stats["digest"] = True
+        except Exception as e:
+            log.error("digest: %s", e)
     try:
         stats["export"] = publish.export_site(store, cfg)
     except Exception as e:
@@ -93,7 +110,8 @@ def cycle_collect_only(store: Store, cfg) -> None:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="gta6bot")
-    ap.add_argument("cmd", choices=["run", "loop", "digest", "top", "preview", "test-telegram"])
+    ap.add_argument("cmd", choices=["run", "loop", "digest", "top", "preview", "announce", "test-telegram"])
+    ap.add_argument("--file", help="announcement JSON for announce")
     ap.add_argument("--config", default=str(ROOT / "config.toml"))
     a = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -109,11 +127,6 @@ def main(argv=None) -> int:
         while True:
             try:
                 cycle(store, cfg)
-                today = time.strftime("%Y-%m-%d")
-                if time.gmtime().tm_hour == 17 and last_digest != today:  # 20:00 МСК
-                    publish.send(os.getenv("TELEGRAM_CHANNEL", "@dry_run"), publish.digest(store, cfg))
-                    store.set("last_digest_day", today)
-                    last_digest = today
             except Exception as e:
                 log.exception("cycle crashed")
                 publish.notify_admin(f"Цикл упал: {e}")
@@ -147,6 +160,8 @@ def main(argv=None) -> int:
                 r = store.db.execute("SELECT * FROM items WHERE id=?", (r["id"],)).fetchone()
             print(publish.render(r, cfg))
             shown += 1
+    elif a.cmd == "announce":
+        print(publish.announce(store, cfg, a.file))
     elif a.cmd == "top":
         for r in sorted(store.recent(24), key=lambda r: r["score"], reverse=True)[:25]:
             print(f"{r['score']:5.1f} {r['kind']:5} {r['category']:6} {(r['source'] or '')[:18]:18} {r['title'][:80]}")
