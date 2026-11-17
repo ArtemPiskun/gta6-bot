@@ -67,14 +67,20 @@ def compose(row, related: list) -> dict | None:
                      f"скорость: {fmt_num(row['recent_vph'] or row['vph'])} в час")
     for r in related[:4]:
         facts.append(f"Похожий материал ({r['source']}): {r['title']}. {(r['summary'] or '')[:400]}")
-    body = json.dumps({"model": os.getenv("ANTHROPIC_MODEL", "claude-haiku-5-5"), "max_tokens": 600,
+    body = json.dumps({"model": os.getenv("ANTHROPIC_MODEL", "claude-haiku-5-5"), "max_tokens": 1200,
                        "system": EDITOR_PROMPT,
                        "messages": [{"role": "user", "content": "\n".join(facts)}]}).encode()
     raw = net.fetch("https://api.anthropic.com/v1/messages", data=body, headers={
         "x-api-key": os.environ["ANTHROPIC_API_KEY"], "anthropic-version": "2023-06-01",
         "content-type": "application/json"}, timeout=60, retries=1)
-    text = "".join(b.get("text", "") for b in json.loads(raw)["content"])
-    data = json.loads(text[text.find("{"): text.rfind("}") + 1])
+    resp = json.loads(raw)
+    text = "".join(b.get("text", "") for b in resp.get("content", []))
+    try:
+        data = json.loads(text[text.find("{"): text.rfind("}") + 1])
+    except ValueError:
+        log.warning("editor returned non-JSON for %r (stop=%s): %r", row["title"][:60],
+                    resp.get("stop_reason"), text[:300])
+        return None
     if data.get("skip") or not data.get("text"):
         log.info("editor skipped %r: %s", row["title"][:60], data.get("reason"))
         return None

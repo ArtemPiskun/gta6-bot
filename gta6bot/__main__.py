@@ -133,7 +133,11 @@ def main(argv=None) -> int:
                 break
             print(f"\n===== score {r['score']} | {r['kind']} | {r['source']} | {r['title']}")
             if publish.llm_available():
-                post = publish.compose(r, publish.related_items(store, r))
+                try:
+                    post = publish.compose(r, publish.related_items(store, r))
+                except Exception as e:
+                    print("[ошибка редактора]", e)
+                    continue
                 if not post:
                     print("[редактор отказался]")
                     continue
