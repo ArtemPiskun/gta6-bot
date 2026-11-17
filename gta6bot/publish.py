@@ -67,7 +67,7 @@ def compose(row, related: list) -> dict | None:
                      f"скорость: {fmt_num(row['recent_vph'] or row['vph'])} в час")
     for r in related[:4]:
         facts.append(f"Похожий материал ({r['source']}): {r['title']}. {(r['summary'] or '')[:400]}")
-    body = json.dumps({"model": os.getenv("ANTHROPIC_MODEL", "claude-haiku-5-5"), "max_tokens": 1200,
+    body = json.dumps({"model": os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5-5"), "max_tokens": 1200,
                        "system": EDITOR_PROMPT,
                        "messages": [{"role": "user", "content": "\n".join(facts)}]}).encode()
     raw = net.fetch("https://api.anthropic.com/v1/messages", data=body, headers={
@@ -98,6 +98,46 @@ def related_items(store: Store, row) -> list:
         if tk and ot and len(tk & ot) / len(tk | ot) >= 0.3:
             out.append(r)
     return sorted(out, key=lambda r: len(r["summary"] or ""), reverse=True)
+
+
+def related_video(store: Store, row):
+    from .scoring import tokens
+    tk = tokens(row["title_ru"] or row["title"]) | tokens(row["title"])
+    best, best_j = None, 0.0
+    for r in store.recent(48, "video"):
+        if not r["video_id"] or (r["score"] or 0) <= 0:
+            continue
+        ot = tokens(r["title"])
+        j = len(tk & ot) / len(tk | ot) if tk and ot else 0
+        if j > best_j:
+            best, best_j = r, j
+    return best if best_j >= 0.2 else None
+
+
+def pick_image(store: Store, row, cfg) -> tuple[str, bytes | None]:
+    """(image url, generated cover bytes). Videos use their thumbnail; news use the
+    article image, otherwise a branded cover with the headline."""
+    if row["kind"] == "video" and row["video_id"]:
+        return f"https://i.ytimg.com/vi/{row['video_id']}/maxresdefault.jpg", None
+    if row["image"] and "google" not in row["image"]:
+        return row["image"], None
+    from . import card
+    if not card.available():
+        return "", None
+    bg = None
+    rv = related_video(store, row)
+    if rv:
+        try:
+            bg = net.fetch(f"https://i.ytimg.com/vi/{rv['video_id']}/hqdefault.jpg", retries=0)
+        except Exception:
+            bg = None
+    try:
+        cover = card.make_card(row["title_ru"] or row["title"], row["category"], row["source"],
+                               os.getenv("TELEGRAM_CHANNEL", ""), background=bg, seed=row["id"])
+        return "", cover
+    except Exception as e:
+        log.warning("cover failed: %s", e)
+        return "", None
 
 
 def render(row, cfg) -> str:
@@ -133,10 +173,39 @@ def tg_call(method: str, payload: dict) -> dict:
     return res
 
 
-def send(chat: str, text: str, image: str = "") -> None:
+def tg_upload_photo(chat: str, photo: bytes, caption: str, reply_markup: dict | None = None) -> None:
+    token = os.environ["TELEGRAM_BOT_TOKEN"]
+    boundary = "----gta6bot" + os.urandom(8).hex()
+    parts = []
+    fields = [("chat_id", chat), ("caption", caption), ("parse_mode", "HTML")]
+    if reply_markup:
+        fields.append(("reply_markup", json.dumps(reply_markup, ensure_ascii=False)))
+    for k, v in fields:
+        parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'.encode())
+    parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="photo"; filename="cover.jpg"\r\n'
+                 f"Content-Type: image/jpeg\r\n\r\n".encode() + photo + b"\r\n")
+    parts.append(f"--{boundary}--\r\n".encode())
+    raw = net.fetch(f"https://api.telegram.org/bot{token}/sendPhoto", data=b"".join(parts),
+                    headers={"Content-Type": f"multipart/form-data; boundary={boundary}"}, timeout=60, retries=2)
+    res = json.loads(raw)
+    if not res.get("ok"):
+        raise RuntimeError(res)
+
+
+def send(chat: str, text: str, image: str = "", photo: bytes | None = None) -> None:
     if os.getenv("DRY_RUN", "0") == "1" or not os.getenv("TELEGRAM_BOT_TOKEN"):
-        print("---- [DRY RUN] ->", chat, "\n" + text + (f"\n[image] {image}" if image else ""))
+        extra = f"\n[image] {image}" if image else (f"\n[cover] {len(photo)} bytes" if photo else "")
+        print("---- [DRY RUN] ->", chat, "\n" + text + extra)
+        if photo and os.getenv("PREVIEW_DIR"):
+            Path(os.environ["PREVIEW_DIR"]).mkdir(parents=True, exist_ok=True)
+            (Path(os.environ["PREVIEW_DIR"]) / f"cover_{abs(hash(text)) % 10**8}.jpg").write_bytes(photo)
         return
+    if photo and len(text) <= 1024:
+        try:
+            tg_upload_photo(chat, photo, text)
+            return
+        except Exception as e:
+            log.warning("photo upload failed, falling back: %s", e)
     if image and len(text) <= 1024:
         try:
             tg_call("sendPhoto", {"chat_id": chat, "photo": image, "caption": text, "parse_mode": "HTML"})
@@ -216,11 +285,12 @@ def post_due(store: Store, cfg) -> list[str]:
             continue
         try:
             if needs_review(row, cfg):
-                send_for_review(row, cfg)
+                send_for_review(row, cfg, store)
                 store.update(row["id"], posted_at="!pending")
                 sent.append("[на одобрение] " + row["title"])
-                continue  # drafts don't count towards channel pacing
-            send(chat, render(row, cfg), row["image"])
+                break  # one draft per cycle so the admin chat isn't flooded
+            img_url, cover = pick_image(store, row, cfg)
+            send(chat, render(row, cfg), img_url, cover)
         except Exception as e:
             log.error("telegram send failed: %s", e)
             notify_admin(f"Ошибка отправки в канал: {e}")
@@ -240,7 +310,7 @@ def post_mode(cfg) -> str:
     return os.getenv("POST_MODE") or cfg["telegram"].get("mode", "auto")
 
 
-def needs_review(row, cfg) -> bool:
+def needs_review(row, cfg) -> bool:  # noqa: D401
     """review: everything goes to the admin first. auto: only unverified leaks do (if an admin chat exists)."""
     if not os.getenv("TELEGRAM_ADMIN_CHAT"):
         return False
@@ -249,7 +319,7 @@ def needs_review(row, cfg) -> bool:
     return row["category"] == "leak" and not row["verified"]
 
 
-def send_for_review(row, cfg) -> None:
+def send_for_review(row, cfg, store: Store | None = None) -> None:
     admin = os.environ["TELEGRAM_ADMIN_CHAT"]
     text = f"📝 <b>Черновик</b> · score {int(row['score'])}\n\n" + render(row, cfg)
     markup = {"inline_keyboard": [[{"text": "✅ Опубликовать", "callback_data": f"pub:{row['id']}"},
@@ -257,7 +327,14 @@ def send_for_review(row, cfg) -> None:
     if os.getenv("DRY_RUN", "0") == "1" or not os.getenv("TELEGRAM_BOT_TOKEN"):
         print("---- [DRY RUN REVIEW] ->", admin, "\n" + text)
         return
-    tg_call("sendMessage", {"chat_id": admin, "text": text, "parse_mode": "HTML", "reply_markup": markup})
+    img_url, cover = pick_image(store, row, cfg) if store else ("", None)
+    if len(text) <= 1024 and cover:
+        tg_upload_photo(admin, cover, text, markup)
+    elif len(text) <= 1024 and img_url:
+        tg_call("sendPhoto", {"chat_id": admin, "photo": img_url, "caption": text, "parse_mode": "HTML",
+                              "reply_markup": markup})
+    else:
+        tg_call("sendMessage", {"chat_id": admin, "text": text, "parse_mode": "HTML", "reply_markup": markup})
 
 
 def process_approvals(store: Store, cfg) -> list[str]:
@@ -278,7 +355,8 @@ def process_approvals(store: Store, cfg) -> list[str]:
         answer = "Не найдено"
         if row and row["posted_at"] == "!pending":
             if action == "pub":
-                send(os.environ["TELEGRAM_CHANNEL"], render(row, cfg), row["image"])
+                img_url, cover = pick_image(store, row, cfg)
+                send(os.environ["TELEGRAM_CHANNEL"], render(row, cfg), img_url, cover)
                 store.update(iid, posted_at=iso(now()))
                 answer = "Опубликовано"
                 done.append(row["title"])

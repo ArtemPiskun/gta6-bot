@@ -39,6 +39,8 @@ def load_cfg(path: str) -> dict:
         cfg["general"]["launch_mode"] = os.getenv("LAUNCH_MODE") == "1"
     if not os.getenv("TELEGRAM_CHANNEL") and cfg["telegram"].get("channel"):
         os.environ["TELEGRAM_CHANNEL"] = cfg["telegram"]["channel"]
+    if not os.getenv("TELEGRAM_ADMIN_CHAT") and cfg["telegram"].get("admin_chat"):
+        os.environ["TELEGRAM_ADMIN_CHAT"] = str(cfg["telegram"]["admin_chat"])
     if os.getenv("EXPORT_DIR"):
         cfg["general"]["export_dir"] = os.environ["EXPORT_DIR"]
     return cfg

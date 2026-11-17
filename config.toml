@@ -52,9 +52,11 @@ boost_words = { "trailer" = 15, "трейлер" = 15, "delay" = 25, "перен
 [telegram]
 # канал для публикаций (переменная окружения TELEGRAM_CHANNEL главнее)
 channel = "@PIR_LIFE"
+# куда приходят черновики с кнопками и ошибки (нужно один раз написать боту /start)
+admin_chat = "192875362"
 # auto: публикует сам, но неподтверждённые слухи сначала уходят вам на одобрение (если задан TELEGRAM_ADMIN_CHAT)
 # review: всё уходит черновиками в TELEGRAM_ADMIN_CHAT с кнопками «Опубликовать / Пропустить»
-mode = "auto"
+mode = "review"
 # пороги score (0-100) для автопоста
 post_threshold_news = 56
 post_threshold_video = 78

@@ -36,7 +36,8 @@ def rss(items):
 class Pipeline(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
-        os.environ.update(DRY_RUN="1", EXPORT_DIR=self.tmp + "/site", LAUNCH_MODE="1")
+        os.environ.update(DRY_RUN="1", EXPORT_DIR=self.tmp + "/site", LAUNCH_MODE="1", POST_MODE="auto",
+                          TELEGRAM_ADMIN_CHAT="")
         os.environ.pop("YOUTUBE_API_KEY", None)
         self.cfg = app.load_cfg(str(Path(__file__).resolve().parent.parent / "config.toml"))
         self.cfg["general"]["db_path"] = self.tmp + "/t.sqlite"
@@ -146,7 +147,7 @@ class Pipeline(unittest.TestCase):
             self.assertNotIn("[DRY RUN] -> @dry_run", rv.getvalue())
             self.assertIn("reddit.com/e", rv.getvalue(), "leak goes to review")
         finally:
-            os.environ.pop("TELEGRAM_ADMIN_CHAT"); os.environ.pop("POST_MODE")
+            os.environ.update(TELEGRAM_ADMIN_CHAT="", POST_MODE="auto")
 
 
 if __name__ == "__main__":
