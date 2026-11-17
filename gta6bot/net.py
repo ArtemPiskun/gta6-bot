@@ -26,7 +26,11 @@ def fetch(url: str, *, data: bytes | None = None, headers: dict | None = None,
             with urllib.request.urlopen(req, timeout=timeout) as r:
                 return r.read()
         except urllib.error.HTTPError as e:
-            last = e
+            try:
+                detail = e.read()[:300].decode("utf-8", "replace")
+            except Exception:
+                detail = ""
+            last = RuntimeError(f"HTTP {e.code}: {detail}")
             if e.code in (400, 401, 403, 404):
                 break
         except Exception as e:  # network errors, timeouts
