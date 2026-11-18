@@ -56,15 +56,15 @@ channel = "@PIR_LIFE"
 admin_chat = "192875362"
 # auto: публикует сам, но неподтверждённые слухи сначала уходят вам на одобрение (если задан TELEGRAM_ADMIN_CHAT)
 # review: всё уходит черновиками в TELEGRAM_ADMIN_CHAT с кнопками «Опубликовать / Пропустить»
-mode = "review"
+mode = "auto"
 # пороги score (0-100) для автопоста
-post_threshold_news = 56
-post_threshold_video = 78
-post_threshold_leak = 78
-launch_threshold_delta = -8
-max_posts_per_hour = 3
-launch_max_posts_per_hour = 4
-min_gap_minutes = 10
+post_threshold_news = 70
+post_threshold_video = 70
+post_threshold_leak = 70
+launch_threshold_delta = 0
+max_posts_per_hour = 2
+launch_max_posts_per_hour = 2
+min_gap_minutes = 30
 # не постить старьё
 max_age_hours = 12
 # видео может «выстрелить» не сразу
