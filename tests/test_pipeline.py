@@ -41,6 +41,10 @@ class Pipeline(unittest.TestCase):
         os.environ.pop("YOUTUBE_API_KEY", None)
         self.cfg = app.load_cfg(str(Path(__file__).resolve().parent.parent / "config.toml"))
         self.cfg["general"]["db_path"] = self.tmp + "/t.sqlite"
+        # pin the pipeline-test thresholds; live config.toml values may change
+        self.cfg["telegram"].update(mode="review", post_threshold_news=56, post_threshold_video=78,
+                                    post_threshold_leak=78, launch_threshold_delta=-8,
+                                    max_posts_per_hour=3, launch_max_posts_per_hour=4, min_gap_minutes=10)
         self.cfg["news"]["feeds"].append({"url": "https://www.reddit.com/r/GamingLeaksAndRumours/new/.rss",
                                           "name": "r/GamingLeaksAndRumours", "type": "leak"})
         self.store = app.open_store(self.cfg)
