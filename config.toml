@@ -58,9 +58,9 @@ admin_chat = "192875362"
 # review: всё уходит черновиками в TELEGRAM_ADMIN_CHAT с кнопками «Опубликовать / Пропустить»
 mode = "auto"
 # пороги score (0-100) для автопоста
-post_threshold_news = 70
-post_threshold_video = 70
-post_threshold_leak = 70
+post_threshold_news = 65
+post_threshold_video = 65
+post_threshold_leak = 65
 launch_threshold_delta = 0
 max_posts_per_hour = 2
 launch_max_posts_per_hour = 2
