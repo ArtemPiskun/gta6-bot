@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import logging
 import time
 import urllib.error
@@ -36,7 +37,15 @@ def fetch(url: str, *, data: bytes | None = None, headers: dict | None = None,
         except Exception as e:  # network errors, timeouts
             last = e
         time.sleep(1.5 * (attempt + 1))
-    raise RuntimeError(f"fetch failed {url}: {last}")
+    raise RuntimeError(redact(f"fetch failed {url}: {last}"))
+
+
+TOKEN_RE = re.compile(r"bot\d{5,}:[A-Za-z0-9_-]{20,}")
+
+
+def redact(text: str) -> str:
+    """Never show the Telegram bot token in logs or admin messages."""
+    return TOKEN_RE.sub("bot***", str(text))
 
 
 def fetch_json(url: str, params: dict | None = None, **kw) -> dict:

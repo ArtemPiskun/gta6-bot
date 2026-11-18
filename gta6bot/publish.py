@@ -115,36 +115,72 @@ def related_video(store: Store, row):
     return best if best_j >= 0.2 else None
 
 
-def pick_image(store: Store, row, cfg) -> tuple[str, bytes | None]:
-    """(image url, generated cover bytes). Videos use their thumbnail; news use the
-    article image, otherwise a branded cover with the headline."""
-    if row["source_type"] == "own":
-        from . import card
-        if card.available():
-            return "", card.make_card(row["title_ru"] or row["title"], "site", "", os.getenv("TELEGRAM_CHANNEL", ""),
-                                      seed=row["id"])
-        return "", None
-    if row["kind"] == "video" and row["video_id"]:
-        return f"https://i.ytimg.com/vi/{row['video_id']}/maxresdefault.jpg", None
-    if row["image"] and "google" not in row["image"]:
-        return row["image"], None
+def download_image(url: str) -> bytes | None:
+    """Fetch a picture ourselves (Telegram can't hotlink many news sites) and make it a
+    Telegram-friendly JPEG. None if it isn't a usable image."""
+    try:
+        from .article import BROWSER_UA
+        raw = net.fetch(url, headers={"User-Agent": BROWSER_UA, "Accept": "image/*,*/*",
+                                      "Referer": url.split("/", 3)[0] + "//" + url.split("/", 3)[2] + "/"},
+                        retries=1, timeout=20)
+    except Exception as e:
+        log.info("image download failed %s: %s", url[:80], e)
+        return None
+    if len(raw) < 2000:
+        return None
+    try:
+        import io
+        from PIL import Image
+        im = Image.open(io.BytesIO(raw))
+        if im.width < 300 or im.height < 150:
+            return None
+        im = im.convert("RGB")
+        im.thumbnail((1600, 1600))
+        out = io.BytesIO()
+        im.save(out, "JPEG", quality=88)
+        return out.getvalue()
+    except ImportError:
+        return raw if raw[:3] == b"\xff\xd8\xff" or raw[:8] == b"\x89PNG\r\n\x1a\n" else None
+    except Exception:
+        return None
+
+
+def make_cover(store: Store, row) -> bytes | None:
     from . import card
     if not card.available():
-        return "", None
+        return None
     bg = None
-    rv = related_video(store, row)
+    rv = related_video(store, row) if row["source_type"] != "own" else None
     if rv:
         try:
             bg = net.fetch(f"https://i.ytimg.com/vi/{rv['video_id']}/hqdefault.jpg", retries=0)
         except Exception:
             bg = None
     try:
-        cover = card.make_card(row["title_ru"] or row["title"], row["category"], row["source"],
-                               os.getenv("TELEGRAM_CHANNEL", ""), background=bg, seed=row["id"])
-        return "", cover
+        cat = "site" if row["source_type"] == "own" else row["category"]
+        src = "" if row["source_type"] == "own" else row["source"]
+        return card.make_card(row["title_ru"] or row["title"], cat, src, os.getenv("TELEGRAM_CHANNEL", ""),
+                              background=bg, seed=row["id"])
     except Exception as e:
         log.warning("cover failed: %s", e)
-        return "", None
+        return None
+
+
+def pick_image(store: Store, row, cfg) -> tuple[str, bytes | None]:
+    """Always returns bytes we upload ourselves: the video thumbnail or the article picture,
+    downloaded by the bot; otherwise a branded cover with the headline."""
+    if row["source_type"] != "own":
+        urls = []
+        if row["kind"] == "video" and row["video_id"]:
+            urls = [f"https://i.ytimg.com/vi/{row['video_id']}/maxresdefault.jpg",
+                    f"https://i.ytimg.com/vi/{row['video_id']}/hqdefault.jpg"]
+        elif row["image"] and "google" not in row["image"]:
+            urls = [row["image"]]
+        for u in urls:
+            data = download_image(u)
+            if data:
+                return "", data
+    return "", make_cover(store, row)
 
 
 def render(row, cfg) -> str:
@@ -317,8 +353,13 @@ def post_due(store: Store, cfg) -> list[str]:
             img_url, cover = pick_image(store, row, cfg)
             send(chat, render(row, cfg), img_url, cover)
         except Exception as e:
-            log.error("telegram send failed: %s", e)
-            notify_admin(f"Ошибка отправки в канал: {e}")
+            fails = int(store.get(f"fail:{row['id']}", "0")) + 1
+            store.set(f"fail:{row['id']}", str(fails))
+            log.error("telegram send failed (%d): %s", fails, net.redact(e))
+            if fails >= 2:
+                store.update(row["id"], posted_at="!error")  # stop retrying this item
+                notify_admin(f"Не удалось отправить «{row['title_ru'] or row['title']}», пропускаю. "
+                             f"Причина: {net.redact(e)[:200]}")
             break
         store.update(row["id"], posted_at=iso(now()))
         sent.append(row["title"])
@@ -353,14 +394,14 @@ def send_for_review(row, cfg, store: Store | None = None) -> None:
     if os.getenv("DRY_RUN", "0") == "1" or not os.getenv("TELEGRAM_BOT_TOKEN"):
         print("---- [DRY RUN REVIEW] ->", admin, "\n" + text)
         return
-    img_url, cover = pick_image(store, row, cfg) if store else ("", None)
-    if len(text) <= 1024 and cover:
-        tg_upload_photo(admin, cover, text, markup)
-    elif len(text) <= 1024 and img_url:
-        tg_call("sendPhoto", {"chat_id": admin, "photo": img_url, "caption": text, "parse_mode": "HTML",
-                              "reply_markup": markup})
-    else:
-        tg_call("sendMessage", {"chat_id": admin, "text": text, "parse_mode": "HTML", "reply_markup": markup})
+    _, photo = pick_image(store, row, cfg) if store else ("", None)
+    if photo and len(text) <= 1024:
+        try:
+            tg_upload_photo(admin, photo, text, markup)
+            return
+        except Exception as e:
+            log.warning("draft photo failed, sending text: %s", net.redact(e))
+    tg_call("sendMessage", {"chat_id": admin, "text": text, "parse_mode": "HTML", "reply_markup": markup})
 
 
 def _set_status(msg: dict | None, buttons: list) -> None:
@@ -443,6 +484,7 @@ def _ack(cq: dict, text: str) -> None:
 
 
 def notify_admin(text: str) -> None:
+    text = net.redact(text)
     admin = os.getenv("TELEGRAM_ADMIN_CHAT")
     if admin:
         try:
