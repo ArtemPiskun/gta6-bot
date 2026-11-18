@@ -7,7 +7,7 @@ from pathlib import Path
 
 ASSETS = Path(__file__).resolve().parent.parent / "assets"
 W, H = 1280, 720
-CAT_LABEL = {"news": "НОВОСТИ", "update": "ОБНОВЛЕНИЕ", "guide": "ГАЙД", "video": "ВИДЕО", "leak": "СЛУХ", "site": "NEW WEBSITE"}
+CAT_LABEL = {"news": "NEWS", "update": "UPDATE", "guide": "GUIDE", "video": "VIDEO", "leak": "RUMOR", "site": "NEW WEBSITE"}
 PALETTES = [  # Vice City skies: sunset, dusk, night, neon, tropical day
     ((26, 11, 46), (255, 46, 136), (255, 154, 60)),
     ((10, 18, 48), (0, 180, 216), (255, 46, 136)),
@@ -82,7 +82,7 @@ def make_card(title: str, category: str = "news", source: str = "", channel: str
     bold = ImageFont.truetype(str(ASSETS / "DejaVuSans-Bold.ttf"), 30)
     small = ImageFont.truetype(str(ASSETS / "DejaVuSans.ttf"), 28)
     pad = 64
-    label = f"GTA 6  ·  {CAT_LABEL.get(category, 'НОВОСТИ')}"
+    label = f"GTA 6  ·  {CAT_LABEL.get(category, 'NEWS')}"
     lw = d.textlength(label, font=bold)
     d.rounded_rectangle((pad, pad, pad + lw + 40, pad + 54), radius=27, fill=(255, 46, 136, 235))
     d.text((pad + 20, pad + 10), label, font=bold, fill="white")

@@ -73,4 +73,4 @@ max_age_hours_video = 24
 video_every_n_posts = 3
 # тихие часы по Москве (UTC+3), в launch_mode игнорируются
 quiet_hours_msk = [2, 8]
-hashtags = "#GTA6 #ГТА6"
+hashtags = "#GTA6 #GTAVI"

@@ -18,7 +18,7 @@ from .store import Store, iso, now
 log = logging.getLogger("gta6bot.publish")
 MSK = timezone(timedelta(hours=3))
 CAT_EMOJI = {"news": "📰", "update": "🛠", "guide": "📘", "video": "🎬", "leak": "🕵️"}
-CAT_RU = {"news": "Новости", "update": "Обновление", "guide": "Гайд", "video": "Видео", "leak": "Слух"}
+CAT_RU = {"news": "News", "update": "Update", "guide": "Guide", "video": "Video", "leak": "Rumor"}
 
 
 def fmt_num(n) -> str:
@@ -37,20 +37,20 @@ def is_russian(s: str) -> bool:
 
 
 # ------------------------------------------------------------- copywriting
-EDITOR_PROMPT = """Ты редактор русскоязычного Telegram-канала про GTA 6. Канал читают фанаты, которым важны факты, а не ссылки.
-Из материала ниже сделай пост или откажись от него.
+EDITOR_PROMPT = """You are the editor of an English-language Telegram channel about GTA 6. Readers are fans who want facts, not links.
+Turn the material below into a post or reject it. The material may be in English or Russian; always write in English.
 
-Откажись ("skip": true), если это: стрим или запись стрима, реакция, мем, кликбейт без фактов, видео «скачиваю / жду / готовлю комнату»,
-реклама, не про GTA 6, видео не на английском или русском, или если из данных нельзя написать 2 содержательных предложения.
+Reject ("skip": true) if it is: a stream or stream recording, a reaction, a meme, clickbait without facts, a "downloading / waiting /
+setting up my room" video, an ad, not about GTA 6, a video not in English or Russian, or if the data doesn't support 2 meaningful sentences.
 
-Если пост нужен:
-- title: заголовок по-русски до 80 символов, по сути, без капса и кликбейта;
-- text: 2-3 предложения по-русски: что именно произошло или что показано, конкретные факты, цифры, даты из материала;
-- why: одно предложение, почему это важно игроку;
-- Ничего не выдумывай. Если это слух или неподтверждённая информация, прямо так и напиши в text.
-- Для видео опиши, что в нём (по названию и описанию) и почему оно набирает просмотры; не пиши «смотрите видео».
+If the post is worth it:
+- title: an English headline up to 80 characters, to the point, no caps lock or clickbait;
+- text: 2-3 sentences in English: what exactly happened or is shown, with concrete facts, numbers and dates from the material;
+- why: one sentence on why it matters to players;
+- Don't invent anything. If it is a rumor or unconfirmed, say so plainly in text.
+- For a video, describe what's in it (from the title and description) and why it's getting views; don't write "watch the video".
 
-Ответь строго JSON без пояснений: {"skip": false, "reason": "", "title": "", "text": "", "why": ""}"""
+Reply with strict JSON only: {"skip": false, "reason": "", "title": "", "text": "", "why": ""}"""
 
 
 def llm_available() -> bool:
@@ -191,19 +191,19 @@ def render(row, cfg) -> str:
     cat = row["category"]
     lines = [f"<b>{e(title)}</b>"]
     if cat == "leak" and not row["verified"]:
-        lines.append("⚠️ <i>Слух, официально не подтверждено</i>")
+        lines.append("⚠️ <i>Rumor, not officially confirmed</i>")
     if row["summary_ru"]:
         lines += ["", e(row["summary_ru"])]
     if row["why"]:
         lines += ["", f"💡 {e(row['why'])}"]
     lines.append("")
     if row["kind"] == "video":
-        lines.append(f'🎬 <a href="{e(row["url"])}">{e(row["channel_title"])}</a> · {fmt_num(row["views"])} просмотров')
+        lines.append(f'🎬 <a href="{e(row["url"])}">{e(row["channel_title"])}</a> · {fmt_num(row["views"])} views')
     else:
         badge = " ✅" if row["verified"] else ""
         link = row["article_url"] or row["url"]
-        lines.append(f'Источник: <a href="{e(link)}">{e(row["source"])}</a>{badge}')
-    lines.append(f"{cfg['telegram']['hashtags']} #{CAT_RU.get(cat, 'Новости')}")
+        lines.append(f'Source: <a href="{e(link)}">{e(row["source"])}</a>{badge}')
+    lines.append(f"{cfg['telegram']['hashtags']} #{CAT_RU.get(cat, 'News')}")
     return "\n".join(lines)
 
 
@@ -497,16 +497,16 @@ def digest(store: Store, cfg, hours=24, top=10) -> str:
     vids = [r for r in store.recent(hours, "video") if r["vph"]]
     vids.sort(key=lambda r: r["vph"], reverse=True)
     e = html.escape
-    lines = [f"📊 <b>Что стреляет по GTA 6 за {hours} ч</b>", ""]
+    lines = [f"📊 <b>What\'s trending in GTA 6 in the last {hours}h</b>", ""]
     for i, r in enumerate(vids[:top], 1):
         lines.append(f'{i}. <a href="{e(r["url"])}">{e(r["title"][:80])}</a>\n'
-                     f'   {e(r["channel_title"])} · 👁 {fmt_num(r["views"])} · ⚡ {fmt_num(r["vph"])}/час')
+                     f'   {e(r["channel_title"])} · 👁 {fmt_num(r["views"])} · ⚡ {fmt_num(r["vph"])}/h')
     news = []
     for r in sorted(store.recent(hours, "news"), key=lambda r: r["score"], reverse=True):
         if len(news) < 5 and not is_duplicate_story(r, news):
             news.append(r)
     if news:
-        lines += ["", "📰 <b>Главные новости</b>"]
+        lines += ["", "📰 <b>Top news</b>"]
         lines += [f'• <a href="{e(r["url"])}">{e((r["title_ru"] or r["title"])[:90])}</a>' for r in news]
     lines += ["", cfg["telegram"]["hashtags"]]
     return "\n".join(lines)
