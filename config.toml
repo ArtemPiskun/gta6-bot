@@ -62,9 +62,9 @@ post_threshold_news = 65
 post_threshold_video = 65
 post_threshold_leak = 65
 launch_threshold_delta = 0
-max_posts_per_hour = 2
-launch_max_posts_per_hour = 2
-min_gap_minutes = 30
+max_posts_per_hour = 3
+launch_max_posts_per_hour = 3
+min_gap_minutes = 20
 # не постить старьё
 max_age_hours = 12
 # видео может «выстрелить» не сразу
