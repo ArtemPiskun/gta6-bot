@@ -110,7 +110,7 @@ def cycle_collect_only(store: Store, cfg) -> None:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="gta6bot")
-    ap.add_argument("cmd", choices=["run", "loop", "digest", "top", "preview", "announce", "listen", "test-telegram"])
+    ap.add_argument("cmd", choices=["run", "loop", "digest", "top", "preview", "announce", "listen", "test-telegram", "set-photo"])
     ap.add_argument("--seconds", type=int, default=230)
     ap.add_argument("--file", help="announcement JSON for announce")
     ap.add_argument("--config", default=str(ROOT / "config.toml"))
@@ -176,6 +176,22 @@ def main(argv=None) -> int:
     elif a.cmd == "top":
         for r in sorted(store.recent(24), key=lambda r: r["score"], reverse=True)[:25]:
             print(f"{r['score']:5.1f} {r['kind']:5} {r['category']:6} {(r['source'] or '')[:18]:18} {r['title'][:80]}")
+    elif a.cmd == "set-photo":
+        import json as _json
+        from . import net
+        path = a.file or str(ROOT / "assets/brand/channel-avatar-640.jpg")
+        chat = os.environ["TELEGRAM_CHANNEL"]
+        b = "----gta6bot" + os.urandom(8).hex()
+        body = (f'--{b}\r\nContent-Disposition: form-data; name="chat_id"\r\n\r\n{chat}\r\n'
+                f'--{b}\r\nContent-Disposition: form-data; name="photo"; filename="avatar.jpg"\r\n'
+                f"Content-Type: image/jpeg\r\n\r\n").encode() + open(path, "rb").read() + f"\r\n--{b}--\r\n".encode()
+        try:
+            raw = net.fetch(f"https://api.telegram.org/bot{os.environ['TELEGRAM_BOT_TOKEN']}/setChatPhoto", data=body,
+                            headers={"Content-Type": f"multipart/form-data; boundary={b}"}, timeout=60, retries=1)
+            print("setChatPhoto:", _json.loads(raw))
+        except Exception as e:
+            print("setChatPhoto failed:", net.redact(e))
+            return 1
     elif a.cmd == "test-telegram":
         me = publish.tg_call("getMe", {})["result"]
         print("bot:", me["username"])
